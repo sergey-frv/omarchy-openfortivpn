@@ -47,6 +47,13 @@ Item {
   readonly property string tunnelIp: tracker.last && tracker.last.state === "up" ? (tracker.last.ip || "") : ""
   readonly property int tunnelSince: tracker.last && tracker.last.state === "up" ? (tracker.last.since || 0) : 0
   readonly property bool notifyOnConnect: setting("notifyOnConnect", true) !== false
+  // The address the internet sees while the tunnel is up, from one lookup per
+  // connect (see refreshPublicIp); off with the publicIpLookup setting.
+  readonly property bool publicIpLookup: setting("publicIpLookup", true) !== false
+  property string publicIp: ""
+  property bool publicIpChecked: false
+  property real _publicIpAt: 0
+  property string _publicIpOutput: ""
   readonly property bool busy: checkProcess.running || statusProcess.running || profilesProcess.running
 
   // Polls left at the fast rate after an action, so the state change that
@@ -119,6 +126,7 @@ Item {
       return
     }
     var prevState = root.vpnState
+    var prevProfile = root.tracker.last ? root.tracker.last.profile : ""
     var step = Model.reduceStatus(root.tracker, parsed, root.expectingDrop)
     root.tracker = step.tracker
     root.lastError = ""
@@ -127,14 +135,43 @@ Item {
       expectDropTimer.stop()
     }
     notify(step.notice)
+    // A new tunnel, or another profile's, routes differently: look again.
+    if (parsed.state === "up" && (prevState !== "up" || prevProfile !== parsed.profile)) refreshPublicIp(true)
+    else if (parsed.state !== "up") clearPublicIp()
   }
 
-  // Puts the tunnel's address on the clipboard; false when there is none to copy.
-  function copyIp() {
-    var argv = Model.copyArgv(root.tunnelIp)
+  // Looks the public address up when the tunnel is up: always with force,
+  // otherwise only when the last answer is older than a minute.
+  function refreshPublicIp(force) {
+    if (!root.publicIpLookup || root.vpnState !== "up" || publicIpProcess.running) return
+    if (!force && !Model.publicIpStale(root._publicIpAt, Date.now())) return
+    publicIpProcess.command = Model.publicIpArgv()
+    publicIpProcess.running = true
+  }
+
+  function clearPublicIp() {
+    if (publicIpProcess.running) publicIpProcess.running = false
+    root.publicIp = ""
+    root.publicIpChecked = false
+    root._publicIpAt = 0
+  }
+
+  onPublicIpLookupChanged: if (publicIpLookup) refreshPublicIp(true); else clearPublicIp()
+
+  // Puts an address on the clipboard; false when there is none to copy.
+  function copyAddress(value) {
+    var argv = Model.copyArgv(value)
     if (argv.length === 0) return false
     Quickshell.execDetached(argv)
     return true
+  }
+
+  function copyIp() {
+    return copyAddress(root.tunnelIp)
+  }
+
+  function copyPublicIp() {
+    return copyAddress(root.publicIp)
   }
 
   function notify(notice) {
@@ -259,6 +296,21 @@ Item {
       var stderr = String(statusStderr.text || root._statusError || "")
       if (exitCode === 0) root.applyStatus(stdout)
       else root.lastError = Model.cleanText(stderr || ("exit " + exitCode), 200)
+    }
+  }
+
+  Process {
+    id: publicIpProcess
+    running: false
+    command: []
+    stdout: StdioCollector { id: publicIpStdout; waitForEnd: true; onStreamFinished: root._publicIpOutput = text }
+    onStarted: root._publicIpOutput = ""
+    onExited: function(exitCode) {
+      // An answer that arrives after the tunnel went down is dropped.
+      if (root.vpnState !== "up") return
+      root.publicIp = exitCode === 0 ? Model.parseTrace(String(publicIpStdout.text || root._publicIpOutput || "")) : ""
+      root.publicIpChecked = true
+      root._publicIpAt = Date.now()
     }
   }
 

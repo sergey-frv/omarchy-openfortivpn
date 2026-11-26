@@ -22,7 +22,8 @@
     "defaultSection": "right",
     "defaults": {
       "refreshIntervalSec": 15,
-      "notifyOnConnect": true
+      "notifyOnConnect": true,
+      "publicIpLookup": true
     },
     "schema": [
       {
@@ -38,6 +39,12 @@
         "key": "notifyOnConnect",
         "type": "boolean",
         "label": "Notify when the tunnel comes up",
+        "defaultValue": true
+      },
+      {
+        "key": "publicIpLookup",
+        "type": "boolean",
+        "label": "Look up the public IP (one request to 1.1.1.1 per connect)",
         "defaultValue": true
       }
     ]

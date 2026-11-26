@@ -22,5 +22,8 @@
   "panel.noProfiles": "Профили не найдены",
   "panel.statusFailed": "Ошибка fortivpn status: %1",
   "panel.copyIp": "Скопировать IP",
-  "panel.copied": "Скопировано"
+  "panel.copied": "Скопировано",
+  "panel.publicIp": "Внешний IP",
+  "panel.publicIpUnknown": "недоступен",
+  "panel.copyPublicIp": "Скопировать внешний IP"
 }

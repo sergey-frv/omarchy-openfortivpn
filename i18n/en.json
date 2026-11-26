@@ -22,5 +22,8 @@
   "panel.noProfiles": "No profiles found",
   "panel.statusFailed": "fortivpn status failed: %1",
   "panel.copyIp": "Copy IP",
-  "panel.copied": "Copied"
+  "panel.copied": "Copied",
+  "panel.publicIp": "Public IP",
+  "panel.publicIpUnknown": "unavailable",
+  "panel.copyPublicIp": "Copy public IP"
 }

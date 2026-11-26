@@ -13,6 +13,9 @@ var MAX_PROFILES = 100
 var MAX_MESSAGE = 300
 var MAX_URL = 2048
 var MAX_SINCE = 1e11
+// Public address lookup: Cloudflare's trace by IP, so it needs no DNS.
+var PUBLIC_IP_URL = "https://1.1.1.1/cdn-cgi/trace"
+var PUBLIC_IP_MAX_AGE_MS = 60000
 var FAST_POLL_MS = 3000
 
 function translator(tr) {
@@ -114,6 +117,40 @@ function validIpv4(value) {
   return value
 }
 
+// An IPv4 address or a plain IPv6 address (hex groups and colons, no zone),
+// or "" for anything else.
+function validIp(value) {
+  if (validIpv4(value) !== "") return value
+  if (typeof value !== "string" || value.length < 2 || value.length > 39) return ""
+  if (!/^[0-9A-Fa-f:]+$/.test(value) || value.indexOf(":") === -1) return ""
+  return value
+}
+
+// curl argv for the public address lookup; no shell, fixed URL.
+function publicIpArgv() {
+  return ["curl", "-fsS", "--max-time", "5", "--", PUBLIC_IP_URL]
+}
+
+// The "ip=" line of Cloudflare's trace, validated; "" when there is none.
+function parseTrace(raw) {
+  var text = typeof raw === "string" ? raw : ""
+  if (text.length > MAX_RAW) return ""
+  var lines = text.split("\n")
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i].trim()
+    if (line.indexOf("ip=") === 0) return validIp(line.substring(3))
+  }
+  return ""
+}
+
+// Whether the public address is worth looking up again: never fetched, or
+// older than PUBLIC_IP_MAX_AGE_MS.
+function publicIpStale(fetchedAtMs, nowMs) {
+  if (typeof fetchedAtMs !== "number" || fetchedAtMs <= 0) return true
+  if (typeof nowMs !== "number") return true
+  return nowMs - fetchedAtMs > PUBLIC_IP_MAX_AGE_MS || nowMs < fetchedAtMs
+}
+
 // Unix seconds the tunnel came up, or 0 for anything that is not one.
 function validSince(value) {
   if (typeof value !== "number" || !isFinite(value) || value <= 0 || value >= MAX_SINCE) return 0
@@ -140,10 +177,10 @@ function uptimeText(since, nowSec) {
   return formatUptime(nowSec - start)
 }
 
-// Copies the tunnel address with wl-copy, as argv: no shell, and only a value
-// that is an IPv4 address gets through.
+// Copies an address with wl-copy, as argv: no shell, and only a value that is
+// an IP address gets through.
 function copyArgv(ip) {
-  var address = validIpv4(ip)
+  var address = validIp(ip)
   return address !== "" ? ["wl-copy", "--", address] : []
 }
 
@@ -379,6 +416,10 @@ if (typeof module !== "undefined") {
     neutralizeMarkup: neutralizeMarkup,
     parseStatus: parseStatus,
     validIpv4: validIpv4,
+    validIp: validIp,
+    publicIpArgv: publicIpArgv,
+    parseTrace: parseTrace,
+    publicIpStale: publicIpStale,
     validSince: validSince,
     formatUptime: formatUptime,
     uptimeText: uptimeText,

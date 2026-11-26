@@ -296,3 +296,15 @@ test("the connected notification can be switched off; failures and drops cannot"
   assert.equal(Model.wantsNotice({ kind: "disconnected", profile: "work" }, false), true)
   assert.equal(Model.wantsNotice(null, true), false)
 })
+
+test("public address: parsed from Cloudflare's trace, validated, refetched after a minute", () => {
+  assert.equal(Model.parseTrace("fl=1\nh=1.1.1.1\nip=203.0.113.5\nts=1\n"), "203.0.113.5")
+  assert.equal(Model.parseTrace("ip=2001:db8::1\n"), "2001:db8::1")
+  for (const raw of ["", "ip=\n", "ip=203.0.113.5; rm -rf /\n", "ip=" + MARKUP, "no ip here", null]) assert.equal(Model.parseTrace(raw), "", String(raw))
+  assert.deepEqual(Model.publicIpArgv(), ["curl", "-fsS", "--max-time", "5", "--", "https://1.1.1.1/cdn-cgi/trace"])
+  assert.deepEqual(Model.copyArgv("2001:db8::1"), ["wl-copy", "--", "2001:db8::1"])
+  assert.equal(Model.publicIpStale(0, 1000), true)
+  assert.equal(Model.publicIpStale(1000, 30000), false)
+  assert.equal(Model.publicIpStale(1000, 62000), true)
+  assert.equal(Model.publicIpStale(5000, 1000), true)
+})

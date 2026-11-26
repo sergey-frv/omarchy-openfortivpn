@@ -128,6 +128,7 @@ Panel {
     if (panelFlick) panelFlick.contentY = 0
     vpn.refresh()
     vpn.refreshProfiles()
+    vpn.refreshPublicIp(false)
     Qt.callLater(function() { if (panel.loadedContent) panel.loadedContent.forceActiveFocus() })
   }
   onNavCountChanged: ensureCursor()
@@ -158,20 +159,33 @@ Panel {
     function openLoginUrl() {}
     function openLog() {}
     function copyIp() { return false }
+    readonly property bool publicIpLookup: false
+    readonly property string publicIp: ""
+    readonly property bool publicIpChecked: false
+    function refreshPublicIp(force) {}
+    function copyPublicIp() { return false }
   }
 
-  // "Copied" stands in for the address for a moment after a copy.
-  property bool ipCopied: false
+  // Which address chip reads "Copied" for a moment after a copy: "vpn",
+  // "public" or "".
+  property string copiedAddress: ""
   Timer {
-    id: ipCopiedTimer
+    id: copiedTimer
     interval: 1500
-    onTriggered: root.ipCopied = false
+    onTriggered: root.copiedAddress = ""
+  }
+
+  function markCopied(which) {
+    root.copiedAddress = which
+    copiedTimer.restart()
   }
 
   function copyIp() {
-    if (!vpn.copyIp()) return
-    root.ipCopied = true
-    ipCopiedTimer.restart()
+    if (vpn.copyIp()) markCopied("vpn")
+  }
+
+  function copyPublicIp() {
+    if (vpn.copyPublicIp()) markCopied("public")
   }
 
   // Wall clock for the uptime in the header, ticking only while it is on screen.
@@ -310,40 +324,12 @@ Panel {
                   }
                 }
 
-                // The tunnel address; a click copies it, as the address in
-                // Omarchy's network panel does.
-                BorderSurface {
+                AddressChip {
                   visible: vpn.tunnelIp !== ""
-                  implicitWidth: ipText.implicitWidth + Style.space(10)
-                  implicitHeight: ipText.implicitHeight + Style.space(4)
-                  color: ipMouse.containsMouse ? root.hoverFill : "transparent"
-                  borderSpec: Border.controlSpec(ipMouse.containsMouse ? "hover" : "normal", root.foreground, Commons.Color.accent)
-                  radius: Style.cornerRadius
-
-                  Text {
-                    id: ipText
-                    textFormat: Text.PlainText
-                    anchors.centerIn: parent
-                    text: root.ipCopied ? catalog.t("panel.copied") : vpn.tunnelIp
-                    color: root.ipCopied ? root.accent : root.dim
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.body
-                    font.bold: true
-                  }
-
-                  MouseArea {
-                    id: ipMouse
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: root.copyIp()
-                  }
-
-                  PanelToolTip {
-                    visible: ipMouse.containsMouse && !root.ipCopied
-                    text: catalog.t("panel.copyIp")
-                    fontFamily: root.fontFamily
-                  }
+                  address: vpn.tunnelIp
+                  copied: root.copiedAddress === "vpn"
+                  tooltip: catalog.t("panel.copyIp")
+                  onActivated: root.copyIp()
                 }
               }
             }
@@ -360,6 +346,38 @@ Panel {
                 accentColor: root.accent
                 errorColor: root.urgent
               }
+            }
+          }
+
+          // The address the internet sees while the tunnel is up.
+          RowLayout {
+            visible: root.viewState === "up" && vpn.publicIpLookup
+            width: parent.width
+            spacing: Style.space(8)
+
+            PlainLabel {
+              text: catalog.t("panel.publicIp")
+              color: root.dim
+              font.pixelSize: Style.font.bodySmall
+              Layout.fillWidth: true
+              Layout.alignment: Qt.AlignVCenter
+            }
+
+            PlainLabel {
+              visible: vpn.publicIp === ""
+              text: vpn.publicIpChecked ? catalog.t("panel.publicIpUnknown") : "…"
+              color: root.dim
+              font.pixelSize: Style.font.bodySmall
+              Layout.alignment: Qt.AlignVCenter
+            }
+
+            AddressChip {
+              visible: vpn.publicIp !== ""
+              address: vpn.publicIp
+              copied: root.copiedAddress === "public"
+              tooltip: catalog.t("panel.copyPublicIp")
+              onActivated: root.copyPublicIp()
+              Layout.alignment: Qt.AlignVCenter
             }
           }
 
@@ -567,6 +585,47 @@ Panel {
     PanelToolTip {
       visible: rowMouse.containsMouse && !profileRow.activeProfile
       text: catalog.t("panel.connect")
+      fontFamily: root.fontFamily
+    }
+  }
+
+  // An address that copies itself on click, as the address in Omarchy's
+  // network panel does; reads "Copied" while `copied` is set.
+  component AddressChip: BorderSurface {
+    id: chip
+    property string address: ""
+    property bool copied: false
+    property string tooltip: ""
+    signal activated()
+
+    implicitWidth: chipText.implicitWidth + Style.space(10)
+    implicitHeight: chipText.implicitHeight + Style.space(4)
+    color: chipMouse.containsMouse ? root.hoverFill : "transparent"
+    borderSpec: Border.controlSpec(chipMouse.containsMouse ? "hover" : "normal", root.foreground, Commons.Color.accent)
+    radius: Style.cornerRadius
+
+    Text {
+      id: chipText
+      textFormat: Text.PlainText
+      anchors.centerIn: parent
+      text: chip.copied ? catalog.t("panel.copied") : chip.address
+      color: chip.copied ? root.accent : root.dim
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.body
+      font.bold: true
+    }
+
+    MouseArea {
+      id: chipMouse
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onClicked: chip.activated()
+    }
+
+    PanelToolTip {
+      visible: chipMouse.containsMouse && !chip.copied && chip.tooltip !== ""
+      text: chip.tooltip
       fontFamily: root.fontFamily
     }
   }
