@@ -20,5 +20,7 @@
   "panel.connect": "Подключить",
   "panel.profiles": "Профили",
   "panel.noProfiles": "Профили не найдены",
-  "panel.statusFailed": "Ошибка fortivpn status: %1"
+  "panel.statusFailed": "Ошибка fortivpn status: %1",
+  "panel.copyIp": "Скопировать IP",
+  "panel.copied": "Скопировано"
 }

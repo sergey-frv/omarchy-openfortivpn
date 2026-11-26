@@ -157,6 +157,21 @@ Panel {
     function down() {}
     function openLoginUrl() {}
     function openLog() {}
+    function copyIp() { return false }
+  }
+
+  // "Copied" stands in for the address for a moment after a copy.
+  property bool ipCopied: false
+  Timer {
+    id: ipCopiedTimer
+    interval: 1500
+    onTriggered: root.ipCopied = false
+  }
+
+  function copyIp() {
+    if (!vpn.copyIp()) return
+    root.ipCopied = true
+    ipCopiedTimer.restart()
   }
 
   // Wall clock for the uptime in the header, ticking only while it is on screen.
@@ -245,6 +260,7 @@ Panel {
         else if (t === "r" || t === "R") { vpn.refresh(); vpn.refreshProfiles() }
         else if ((t === "o" || t === "O") && root.actionItems.indexOf("login") !== -1) vpn.openLoginUrl()
         else if ((t === "l" || t === "L") && vpn.installed) root.openLog()
+        else if (t === "c" || t === "C") root.copyIp()
       }
 
       Flickable {
@@ -268,7 +284,69 @@ Panel {
             width: parent.width
             title: vpn.profile !== "" ? vpn.profile : "OpenFortiVPN"
             meta: root.stateText
-            detail: root.viewState === "up" ? Model.tunnelDetail(vpn.tunnelIp, vpn.tunnelSince, root.nowSec) : ""
+            // Uptime and address share the trailing slot, so they sit on one
+            // line: the hero's own detail pill rides the title row instead.
+            trailingControl: Component {
+              Row {
+                visible: root.viewState === "up" && (uptimeText.text !== "" || vpn.tunnelIp !== "")
+                spacing: Style.space(6)
+
+                // No border: only the address is a control. Same padding as
+                // the address chip, so both texts share a line.
+                Item {
+                  visible: uptimeText.text !== ""
+                  implicitWidth: uptimeText.implicitWidth + Style.space(10)
+                  implicitHeight: uptimeText.implicitHeight + Style.space(4)
+
+                  Text {
+                    id: uptimeText
+                    textFormat: Text.PlainText
+                    anchors.centerIn: parent
+                    text: root.viewState === "up" ? Model.uptimeText(vpn.tunnelSince, root.nowSec) : ""
+                    color: root.dim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.body
+                    font.bold: true
+                  }
+                }
+
+                // The tunnel address; a click copies it, as the address in
+                // Omarchy's network panel does.
+                BorderSurface {
+                  visible: vpn.tunnelIp !== ""
+                  implicitWidth: ipText.implicitWidth + Style.space(10)
+                  implicitHeight: ipText.implicitHeight + Style.space(4)
+                  color: ipMouse.containsMouse ? root.hoverFill : "transparent"
+                  borderSpec: Border.controlSpec(ipMouse.containsMouse ? "hover" : "normal", root.foreground, Commons.Color.accent)
+                  radius: Style.cornerRadius
+
+                  Text {
+                    id: ipText
+                    textFormat: Text.PlainText
+                    anchors.centerIn: parent
+                    text: root.ipCopied ? catalog.t("panel.copied") : vpn.tunnelIp
+                    color: root.ipCopied ? root.accent : root.dim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.body
+                    font.bold: true
+                  }
+
+                  MouseArea {
+                    id: ipMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.copyIp()
+                  }
+
+                  PanelToolTip {
+                    visible: ipMouse.containsMouse && !root.ipCopied
+                    text: catalog.t("panel.copyIp")
+                    fontFamily: root.fontFamily
+                  }
+                }
+              }
+            }
             foreground: root.foreground
             fontFamily: root.fontFamily
             iconOpacity: root.viewState === "down" || root.viewState === "missing" ? 0.5 : 1.0

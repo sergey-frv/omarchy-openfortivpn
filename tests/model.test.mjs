@@ -269,19 +269,24 @@ test("tunnel address and start time: only for an up tunnel, and only when well-f
   for (const since of ["1795678373", -1, 0, 1e12, NaN, Infinity, null]) assert.equal(Model.validSince(since), 0, String(since))
 })
 
-test("uptime and the header detail line", () => {
+test("uptime for the panel header", () => {
   assert.equal(Model.formatUptime(0), "0:00")
   assert.equal(Model.formatUptime(59), "0:59")
   assert.equal(Model.formatUptime(61), "1:01")
   assert.equal(Model.formatUptime(3723), "1:02:03")
   assert.equal(Model.formatUptime(36000), "10:00:00")
   assert.equal(Model.formatUptime(-5), "")
-  assert.equal(Model.tunnelDetail("10.0.0.42", 1000, 4723), "10.0.0.42 · 1:02:03")
-  assert.equal(Model.tunnelDetail("", 1000, 1060), "1:00")
-  assert.equal(Model.tunnelDetail("10.0.0.42", 0, 1060), "10.0.0.42")
+  assert.equal(Model.uptimeText(1000, 4723), "1:02:03")
+  assert.equal(Model.uptimeText(1000, 1060), "1:00")
+  assert.equal(Model.uptimeText(0, 1060), "")
   // A clock behind the start time shows no uptime rather than a negative one.
-  assert.equal(Model.tunnelDetail("10.0.0.42", 2000, 1000), "10.0.0.42")
-  assert.equal(Model.tunnelDetail(MARKUP, 0, 0), "")
+  assert.equal(Model.uptimeText(2000, 1000), "")
+  assert.equal(Model.uptimeText(1000, undefined), "")
+})
+
+test("copying the address: wl-copy argv for an IPv4 address only", () => {
+  assert.deepEqual(Model.copyArgv("10.212.134.194"), ["wl-copy", "--", "10.212.134.194"])
+  for (const ip of ["", "-x", "10.0.0.1; rm -rf /", "$(id)", MARKUP, null]) assert.deepEqual(Model.copyArgv(ip), [], String(ip))
 })
 
 test("the connected notification can be switched off; failures and drops cannot", () => {

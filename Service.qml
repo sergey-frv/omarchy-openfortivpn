@@ -129,6 +129,14 @@ Item {
     notify(step.notice)
   }
 
+  // Puts the tunnel's address on the clipboard; false when there is none to copy.
+  function copyIp() {
+    var argv = Model.copyArgv(root.tunnelIp)
+    if (argv.length === 0) return false
+    Quickshell.execDetached(argv)
+    return true
+  }
+
   function notify(notice) {
     if (!Model.wantsNotice(notice, root.notifyOnConnect)) return
     var argv = Model.noticeArgv(notice, root.tr)

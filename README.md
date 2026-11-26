@@ -48,8 +48,9 @@ work-old | vpn-old.example.com:10443/staff |
 ## Use
 
 - **Bar widget**: a click opens the panel. The panel shows the tunnel state, lists the profiles, and connects or
-  disconnects them. While the tunnel is up, the header shows its address and how long it has been up. While the
-  SAML login is in progress, the panel offers the login link. After a failure, it offers the log. The shield icon
+  disconnects them. While the tunnel is up, the header shows its address and how long it has been up; a click on
+  the address, or the `c` key, copies it to the clipboard. While the SAML login is in progress, the panel offers
+  the login link. After a failure, it offers the log. The shield icon
   is dimmed while the tunnel is down, pulses while it connects, and turns red when the connection fails.
 - **Notifications**: the widget notifies when the tunnel comes up, when a connection fails, and when the tunnel
   drops without a disconnect from you. The notification about the tunnel coming up can be switched off in the

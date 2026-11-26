@@ -132,15 +132,19 @@ function formatUptime(seconds) {
   return h > 0 ? h + ":" + mm + ":" + ss : mm + ":" + ss
 }
 
-// The panel's detail line for an up tunnel: "10.0.0.42 · 1:02:03". A clock
-// behind `since` shows no uptime rather than a negative one.
-function tunnelDetail(ip, since, nowSec) {
-  var parts = []
-  var address = validIpv4(ip)
-  if (address !== "") parts.push(address)
+// How long an up tunnel has been up, for the panel header. A clock behind
+// `since` shows nothing rather than a negative time.
+function uptimeText(since, nowSec) {
   var start = validSince(since)
-  if (start > 0 && typeof nowSec === "number" && nowSec >= start) parts.push(formatUptime(nowSec - start))
-  return parts.join(" · ")
+  if (start === 0 || typeof nowSec !== "number" || nowSec < start) return ""
+  return formatUptime(nowSec - start)
+}
+
+// Copies the tunnel address with wl-copy, as argv: no shell, and only a value
+// that is an IPv4 address gets through.
+function copyArgv(ip) {
+  var address = validIpv4(ip)
+  return address !== "" ? ["wl-copy", "--", address] : []
 }
 
 // Whether a notice is sent: "connected" can be switched off in the widget's
@@ -377,7 +381,8 @@ if (typeof module !== "undefined") {
     validIpv4: validIpv4,
     validSince: validSince,
     formatUptime: formatUptime,
-    tunnelDetail: tunnelDetail,
+    uptimeText: uptimeText,
+    copyArgv: copyArgv,
     wantsNotice: wantsNotice,
     parseProfiles: parseProfiles,
     displayProfiles: displayProfiles,

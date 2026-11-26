@@ -20,5 +20,7 @@
   "panel.connect": "Connect",
   "panel.profiles": "Profiles",
   "panel.noProfiles": "No profiles found",
-  "panel.statusFailed": "fortivpn status failed: %1"
+  "panel.statusFailed": "fortivpn status failed: %1",
+  "panel.copyIp": "Copy IP",
+  "panel.copied": "Copied"
 }
