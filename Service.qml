@@ -1,17 +1,32 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import qs.Commons as Commons
 import "Model.js" as Model
 
 // State of the tunnel as the `fortivpn` CLI reports it. Every action goes
 // through the CLI by absolute path; nothing here talks to systemd. Output of
 // the CLI is untrusted and is parsed and bounded in Model.js.
+//
+// The shell creates this service once for the plugin, while every bar draws
+// its own copy of the widget (Panel.qml), so one poll and one notification
+// serve all monitors.
 Item {
   id: root
 
+  // Set by the shell on creation.
+  property var shell: null
+  property var manifest: null
+
+  // Settings of the bar widget, which the widget passes in.
   property var settings: ({})
-  // Commons.Translations of the panel, for notification text.
-  property var strings: null
+
+  Commons.Translations {
+    id: catalog
+    directory: Qt.resolvedUrl("i18n")
+  }
+  // For notification text.
+  readonly property var strings: catalog
 
   readonly property string cliPath: Model.cliPath(Quickshell.env("HOME"))
   readonly property int refreshIntervalSec: intSetting("refreshIntervalSec", 15, 5, 3600)

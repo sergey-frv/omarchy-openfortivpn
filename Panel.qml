@@ -132,10 +132,36 @@ Panel {
   }
   onNavCountChanged: ensureCursor()
 
-  Service {
-    id: vpn
-    settings: root.settings
-    strings: catalog
+  // The plugin's service, which the shell creates once for all bars. Until it
+  // exists the panel reads pendingService: nothing installed yet, every action
+  // a no-op.
+  readonly property var liveService: bar && bar.shell ? bar.shell.serviceFor("sergey-frv.openfortivpn") : null
+  readonly property var vpn: liveService || pendingService
+
+  QtObject {
+    id: pendingService
+    readonly property string displayState: "down"
+    readonly property bool installed: false
+    readonly property bool installChecked: false
+    readonly property string loginUrl: ""
+    readonly property var profiles: []
+    readonly property string profile: ""
+    readonly property string lastError: ""
+    readonly property string message: ""
+    readonly property string statusText: "down"
+    function refresh() {}
+    function refreshProfiles() {}
+    function up(name) {}
+    function down() {}
+    function openLoginUrl() {}
+    function openLog() {}
+  }
+
+  Binding {
+    target: root.liveService
+    property: "settings"
+    value: root.settings
+    when: root.liveService !== null
   }
 
   Commons.ShellIpc {

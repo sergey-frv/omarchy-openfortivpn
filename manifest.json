@@ -7,9 +7,11 @@
   "license": "MIT",
   "description": "OpenFortiVPN (SAML) tunnel state, profile switching, login link and log in the Omarchy bar, driven by the fortivpn CLI.",
   "kinds": [
+    "service",
     "bar-widget"
   ],
   "entryPoints": {
+    "service": "Service.qml",
     "barWidget": "Panel.qml"
   },
   "barWidget": {
