@@ -301,7 +301,7 @@ test("public address: parsed from Cloudflare's trace, validated, refetched after
   assert.equal(Model.parseTrace("fl=1\nh=1.1.1.1\nip=203.0.113.5\nts=1\n"), "203.0.113.5")
   assert.equal(Model.parseTrace("ip=2001:db8::1\n"), "2001:db8::1")
   for (const raw of ["", "ip=\n", "ip=203.0.113.5; rm -rf /\n", "ip=" + MARKUP, "no ip here", null]) assert.equal(Model.parseTrace(raw), "", String(raw))
-  assert.deepEqual(Model.publicIpArgv(), ["curl", "-fsS", "--max-time", "5", "--", "https://1.1.1.1/cdn-cgi/trace"])
+  assert.deepEqual(Model.publicIpArgv(), ["curl", "-fsS", "--max-time", "5", "--", "https://www.cloudflare.com/cdn-cgi/trace"])
   assert.deepEqual(Model.copyArgv("2001:db8::1"), ["wl-copy", "--", "2001:db8::1"])
   assert.equal(Model.publicIpStale(0, 1000), true)
   assert.equal(Model.publicIpStale(1000, 30000), false)

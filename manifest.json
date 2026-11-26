@@ -44,7 +44,7 @@
       {
         "key": "publicIpLookup",
         "type": "boolean",
-        "label": "Look up the public IP (one request to 1.1.1.1 per connect)",
+        "label": "Look up the public IP (one request to www.cloudflare.com per connect)",
         "defaultValue": true
       }
     ]

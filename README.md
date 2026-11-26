@@ -51,12 +51,14 @@ work-old | vpn-old.example.com:10443/staff |
   disconnects them. While the tunnel is up, the header shows its address and how long it has been up; a click on
   the address, or the `c` key, copies it to the clipboard. Below the header, the panel shows the public IP: the
   address the internet sees you from while the tunnel is up, which a click copies as well. While the SAML login
-  is in progress, the panel offers the login link.
-- **Public IP**: the widget asks Cloudflare's `https://1.1.1.1/cdn-cgi/trace` once when the tunnel comes up or
-  switches profile, and again when the panel opens if the last answer is older than a minute. That request shows
-  your address to Cloudflare. To switch the lookup off, set `publicIpLookup` to `false` in the widget's settings;
-  the row disappears and no request is made. After a failure, it offers the log. The shield icon
-  is dimmed while the tunnel is down, pulses while it connects, and turns red when the connection fails.
+  is in progress, the panel offers the login link. After a failure, it offers the log. The shield icon is dimmed
+  while the tunnel is down, pulses while it connects, and turns red when the connection fails.
+- **Public IP**: the widget asks Cloudflare's `https://www.cloudflare.com/cdn-cgi/trace` once when the tunnel
+  comes up or switches profile, and again when the panel opens if the last answer is older than a minute. The
+  lookup goes by name, like an ordinary site: a network may send traffic to the `1.1.1.1` resolver out of another
+  exit, which would show an address other websites do not see. That request shows your address to Cloudflare. To
+  switch the lookup off, set `publicIpLookup` to `false` in the widget's settings
+  (`omarchy bar set sergey-frv.openfortivpn publicIpLookup false`); the row disappears and no request is made.
 - **Notifications**: the widget notifies when the tunnel comes up, when a connection fails, and when the tunnel
   drops without a disconnect from you. The notification about the tunnel coming up can be switched off in the
   widget's settings (`notifyOnConnect`).

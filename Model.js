@@ -13,8 +13,10 @@ var MAX_PROFILES = 100
 var MAX_MESSAGE = 300
 var MAX_URL = 2048
 var MAX_SINCE = 1e11
-// Public address lookup: Cloudflare's trace by IP, so it needs no DNS.
-var PUBLIC_IP_URL = "https://1.1.1.1/cdn-cgi/trace"
+// Public address lookup: Cloudflare's trace, asked by name like an ordinary
+// site. Not 1.1.1.1: a network may send its DNS resolver out of another exit,
+// and the address would then differ from the one websites see.
+var PUBLIC_IP_URL = "https://www.cloudflare.com/cdn-cgi/trace"
 var PUBLIC_IP_MAX_AGE_MS = 60000
 var FAST_POLL_MS = 3000
 
