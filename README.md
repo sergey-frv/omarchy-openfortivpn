@@ -1,0 +1,103 @@
+# OpenFortiVPN for Omarchy
+
+An [Omarchy](https://omarchy.org/) bar widget for FortiGate VPNs that log in with SAML through
+[openfortivpn](https://github.com/adrienverge/openfortivpn). The widget shows the tunnel state and switches between
+profiles. While a login is in progress, it opens the SAML login link. When a connection fails, it shows the log.
+The `fortivpn` CLI does the same from a terminal, including over SSH.
+
+Each profile runs as its own instance of the packaged systemd unit, `openfortivpn@<profile>.service`. The tunnel
+therefore survives a shell restart or logout, and its log goes to the journal.
+
+## Install
+
+```bash
+omarchy plugin add https://github.com/sergey-frv/omarchy-openfortivpn.git --yes
+~/.config/omarchy/plugins/sergey-frv.openfortivpn/install.sh
+```
+
+The first command clones the plugin into `~/.config/omarchy/plugins/sergey-frv.openfortivpn`. The second installs the
+system part and adds the widget to the right section of the bar. It asks for the sudo password and does the
+following:
+
+1. Installs the `openfortivpn` package.
+2. Writes `/etc/openfortivpn/<profile>.conf` for every profile listed in `~/.config/openfortivpn-profiles.conf`.
+3. Installs the drop-in `/etc/systemd/system/openfortivpn@.service.d/saml.conf`, which adds `--saml-login` to the
+   unit.
+4. Installs the polkit rule `/etc/polkit-1/rules.d/50-openfortivpn.rules`, which lets members of `wheel` start and
+   stop `openfortivpn@*.service` without a password.
+5. Links `~/.local/bin/fortivpn` to `bin/fortivpn` of the plugin.
+
+Rerun `install.sh` after you edit the profile file. Profiles removed from the file lose their generated config.
+`install.sh` never overwrites a config in `/etc/openfortivpn` that it did not generate.
+
+## Profiles
+
+`~/.config/openfortivpn-profiles.conf` has one profile per line:
+
+```
+# name | host:port[/realm] |
+work     | vpn.example.com:443 |
+work-old | vpn-old.example.com:10443/staff |
+```
+
+- **name**: letters, digits, `_` and `-`. It becomes the instance name `openfortivpn@<name>.service`.
+- **host:port/realm**: the FortiGate address. The port and the realm are optional.
+- **third column**: kept for compatibility. Extra arguments are ignored with a warning, because the service
+  passes only the host, the port and the realm.
+
+## Use
+
+- **Bar widget**: a click opens the panel. The panel shows the tunnel state, lists the profiles, and connects or
+  disconnects them. While the SAML login is in progress, it offers the login link. After a failure, it offers the
+  log. The shield icon is dimmed while the tunnel is down, pulses while it connects, and turns red when the
+  connection fails.
+- **CLI**:
+
+  ```bash
+  fortivpn up [profile]      # connect; asks for the profile when there are several
+  fortivpn down              # disconnect
+  fortivpn status [--json]   # down | connecting | up | failed
+  fortivpn profiles [--json]
+  fortivpn log [profile]     # journal of the last connection attempt
+  ```
+
+### Login over SSH
+
+openfortivpn waits for the result of the SAML login on `127.0.0.1:8020` of the machine that runs the tunnel. To
+connect a remote machine, forward that port, run `fortivpn up` there and open the printed link in your local
+browser:
+
+```bash
+ssh -L 8020:127.0.0.1:8020 <host>
+```
+
+In an SSH session, `fortivpn up` also copies the link to the local clipboard with OSC 52, if your terminal
+supports it.
+
+## Uninstall
+
+```bash
+~/.config/omarchy/plugins/sergey-frv.openfortivpn/uninstall.sh
+```
+
+The script disconnects the tunnel. It removes the generated profile configs, the drop-in, the polkit rule, the
+`fortivpn` link, the `openfortivpn` package and the plugin. The profile file `~/.config/openfortivpn-profiles.conf`
+stays.
+
+`omarchy plugin remove sergey-frv.openfortivpn` removes only the widget and leaves the system part in place.
+
+## Development
+
+The plugin logic lives in `Model.js`, which runs without Qt. Its tests use the Node.js test runner:
+
+```bash
+node --test tests/
+```
+
+The shell reloads a plugin when its files change in `~/.config/omarchy/plugins/sergey-frv.openfortivpn`. A copy that lives
+elsewhere and is linked into that folder is not reloaded, so run `omarchy restart shell` after every edit. Plugin
+validation also rejects symlinks inside the plugin folder.
+
+## License
+
+MIT

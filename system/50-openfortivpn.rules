@@ -1,0 +1,20 @@
+// Lets members of wheel start and stop the openfortivpn@<profile>.service tunnels without a password,
+// locally and over SSH. Install as /etc/polkit-1/rules.d/50-openfortivpn.rules.
+//
+// systemd passes the unit name in "unit" (openfortivpn@work-old.service); "verb" is the job type for
+// start/stop/restart and "reset-failed" for ResetFailedUnit (src/core/dbus-unit.c).
+polkit.addRule(function (action, subject) {
+    if (action.id !== "org.freedesktop.systemd1.manage-units" || !subject.isInGroup("wheel")) {
+        return polkit.Result.NOT_HANDLED;
+    }
+
+    var unit = action.lookup("unit") || "";
+    var verb = action.lookup("verb") || "";
+    var verbs = ["start", "stop", "restart", "reset-failed"];
+
+    if (/^openfortivpn@[A-Za-z0-9_-]+\.service$/.test(unit) && verbs.indexOf(verb) >= 0) {
+        return polkit.Result.YES;
+    }
+
+    return polkit.Result.NOT_HANDLED;
+});

@@ -1,0 +1,463 @@
+#!/usr/bin/env bash
+
+# Corporate VPN with SAML login on top of the openfortivpn@<profile>.service instances.
+# The profiles are /etc/openfortivpn/<profile>.conf; the drop-in saml.conf adds --saml-login,
+# the polkit rule 50-openfortivpn.rules lets wheel start and stop the instances without a password.
+
+set -euo pipefail
+
+PROFILE_DIR="/etc/openfortivpn"
+SAML_PORT=8020 # default port of openfortivpn --saml-login
+PROFILE_RE='^[A-Za-z0-9_-]+$'
+SAML_URL_RE="Authenticate at '(https?://[^']+)'"
+
+# Prompts only on a terminal: the shell plugin runs us detached
+INTERACTIVE=""
+[[ -t 0 && -t 1 ]] && INTERACTIVE=1
+
+# Never ask for a password when nobody can answer
+SYSTEMCTL=(systemctl)
+[[ -t 0 ]] || SYSTEMCTL+=(--no-ask-password)
+
+# ────────────────────────────────────────────────────────────────────────────────
+#  Styling helpers: colors and gum only on a terminal
+# ────────────────────────────────────────────────────────────────────────────────
+
+has_gum() { command -v gum &>/dev/null; }
+
+styled() {
+  local color="$1"
+  shift
+  if [[ -t 1 ]] && has_gum; then
+    gum style --foreground "$color" "$*"
+  else
+    printf '%s\n' "$*"
+  fi
+}
+
+info() { styled 39 "$*"; }
+success() { styled 82 "$*"; }
+
+error() {
+  if [[ -t 2 ]] && has_gum; then
+    gum style --foreground 196 "Error: $*" >&2
+  else
+    printf 'Error: %s\n' "$*" >&2
+  fi
+  exit 1
+}
+
+# Bordered box on a terminal, plain lines otherwise
+box() {
+  local color="$1"
+  shift
+  if [[ -t 1 ]] && has_gum; then
+    gum style \
+      --foreground "$color" \
+      --border-foreground "$color" \
+      --border normal \
+      --width 60 \
+      --margin "0 2" \
+      --padding "0 1" \
+      "$@"
+  else
+    printf '%s\n' "$@"
+  fi
+}
+
+# ────────────────────────────────────────────────────────────────────────────────
+#  Profiles and units
+# ────────────────────────────────────────────────────────────────────────────────
+
+# Profile names from /etc/openfortivpn/*.conf, sorted; names outside [A-Za-z0-9_-] are skipped
+list_profiles() {
+  local file name
+  for file in "$PROFILE_DIR"/*.conf; do
+    [[ -f "$file" ]] || continue
+    name="$(basename "$file" .conf)"
+    [[ "$name" =~ $PROFILE_RE ]] && printf '%s\n' "$name"
+  done | LC_ALL=C sort
+}
+
+# The drop-in reads /etc/openfortivpn/%i.conf, so the instance is the profile name as is
+unit_of() {
+  printf 'openfortivpn@%s.service\n' "$1"
+}
+
+profile_of() {
+  local instance="${1#openfortivpn@}"
+  printf '%s\n' "${instance%.service}"
+}
+
+# Lines "<unit> <active state>" of all loaded openfortivpn@ instances
+list_instances() {
+  systemctl list-units 'openfortivpn@*' --all --plain --no-legend --no-pager 2>/dev/null |
+    awk '$1 ~ /^openfortivpn@.+\.service$/ { print $1, $3 }'
+}
+
+# Units in the given active states, one per line
+instances_in() {
+  local unit state wanted
+  while read -r unit state; do
+    for wanted in "$@"; do
+      [[ "$state" == "$wanted" ]] && printf '%s\n' "$unit"
+    done
+  done < <(list_instances)
+}
+
+# "<unit> <state>" of the instance status reports: activating/active first, then failed; nothing when down
+current_instance() {
+  local instances unit state wanted
+  instances="$(list_instances)"
+  for wanted in activating active failed; do
+    while read -r unit state; do
+      if [[ "$state" == "$wanted" ]]; then
+        printf '%s %s\n' "$unit" "$state"
+        return
+      fi
+    done <<<"$instances"
+  done
+}
+
+unit_property() {
+  systemctl show -p "$2" --value "$1" 2>/dev/null || true
+}
+
+# Messages of one invocation of the unit (openfortivpn output and ExecStartPost)
+invocation_journal() {
+  [[ -n "$1" ]] || return 0
+  journalctl --no-pager -q -o cat "_SYSTEMD_INVOCATION_ID=$1" 2>/dev/null || true
+}
+
+saml_url_in() {
+  local line
+  while IFS= read -r line; do
+    if [[ "$line" =~ $SAML_URL_RE ]]; then
+      printf '%s\n' "${BASH_REMATCH[1]}"
+      return
+    fi
+  done
+}
+
+# Why the invocation failed: the start timeout, else the last ERROR line of openfortivpn, else its last line,
+# else the unit result
+failure_message() {
+  local unit="$1" invocation="$2" journal message result
+  result="$(unit_property "$unit" Result)"
+  if [[ "$result" == "timeout" ]]; then
+    printf 'Timed out waiting for the SAML login and the tunnel\n'
+    return
+  fi
+
+  journal="$(invocation_journal "$invocation")"
+  message="$(grep '^ERROR:' <<<"$journal" | tail -n 1 || true)"
+  [[ -n "$message" ]] || message="$(tail -n 1 <<<"$journal")"
+  [[ -n "$message" ]] || message="Unit result: $result"
+  printf '%s\n' "$message"
+}
+
+require_profile() {
+  local profile="$1"
+  [[ "$profile" =~ $PROFILE_RE && -f "$PROFILE_DIR/$profile.conf" ]] ||
+    error "Unknown profile '$profile'. Available: $(list_profiles | paste -sd ' ')"
+}
+
+# ────────────────────────────────────────────────────────────────────────────────
+#  SAML URL
+# ────────────────────────────────────────────────────────────────────────────────
+
+# OSC 52: the terminal of the connected device puts the text into its clipboard
+copy_to_terminal_clipboard() {
+  printf '\e]52;c;%s\a' "$(printf '%s' "$1" | base64 -w0)" 2>/dev/null >/dev/tty || true
+}
+
+# Over SSH the URL is shown for the browser of the connected device, locally the browser opens it
+show_saml_url() {
+  local url="$1"
+
+  if [[ -n "${SSH_CONNECTION:-}" ]]; then
+    copy_to_terminal_clipboard "$url"
+    box 214 \
+      "Open the URL below in the browser of the device you connect from." \
+      "The URL is in that device's clipboard when its terminal supports OSC 52." \
+      "" \
+      "The login ends with a redirect to 127.0.0.1:$SAML_PORT." \
+      "It reaches this host through the SSH port forward:" \
+      "ssh -L $SAML_PORT:127.0.0.1:$SAML_PORT <this host>"
+    echo
+    echo "$url"
+    echo
+  else
+    info "Opening browser → $url"
+    omarchy-launch-browser "$url" </dev/null &>/dev/null ||
+      info "Could not open browser automatically. Please visit: $url"
+  fi
+}
+
+# ────────────────────────────────────────────────────────────────────────────────
+#  Commands
+# ────────────────────────────────────────────────────────────────────────────────
+
+cmd_profiles() {
+  local -a names
+  mapfile -t names < <(list_profiles)
+
+  if [[ "${1:-}" == "--json" ]]; then
+    jq -nc '$ARGS.positional' --args "${names[@]}"
+  elif ((${#names[@]} > 0)); then
+    printf '%s\n' "${names[@]}"
+  else
+    info "No profiles in $PROFILE_DIR/*.conf"
+  fi
+}
+
+choose_profile() {
+  local -a names
+  mapfile -t names < <(list_profiles)
+
+  ((${#names[@]} > 0)) || error "No profiles in $PROFILE_DIR/*.conf"
+  if ((${#names[@]} == 1)); then
+    printf '%s\n' "${names[0]}"
+  elif [[ -n "$INTERACTIVE" ]] && has_gum; then
+    gum choose --header "Select profile" "${names[@]}" || exit 1
+  else
+    error "Several profiles, name one: ${names[*]}"
+  fi
+}
+
+# Waits for the invocation the start job begins; prints its ID
+wait_for_new_invocation() {
+  local unit="$1" old="$2" invocation i
+
+  # The ID changes only when the queued start job runs, not when systemctl start --no-block returns
+  for ((i = 0; i < 100; i++)); do
+    invocation="$(unit_property "$unit" InvocationID)"
+    if [[ -n "$invocation" && "$invocation" != "$old" ]]; then
+      printf '%s\n' "$invocation"
+      return
+    fi
+    sleep 0.2
+  done
+  return 1
+}
+
+# Follows the journal of the invocation: opens the SAML URL, returns when the unit is up or gone
+follow_invocation() {
+  local unit="$1" invocation="$2" fd pid line rc state url_shown=""
+
+  exec {fd}< <(journalctl --no-pager -q -o cat -f -n all "_SYSTEMD_INVOCATION_ID=$invocation" 2>/dev/null)
+  pid=$!
+  # shellcheck disable=SC2064 # the PID is fixed now
+  trap "kill $pid 2>/dev/null; echo; echo 'Stopped watching; the connection goes on (fortivpn status, fortivpn down)'; exit 130" INT TERM
+
+  while true; do
+    rc=0
+    IFS= read -r -t 1 -u "$fd" line || rc=$?
+
+    if ((rc == 0)); then
+      if [[ -z "$url_shown" && "$line" =~ $SAML_URL_RE ]]; then
+        url_shown=1
+        info "SAML authentication required!"
+        show_saml_url "${BASH_REMATCH[1]}"
+      fi
+    elif ((rc <= 128)); then
+      # journalctl is gone: keep watching the unit state only
+      sleep 1
+    fi
+
+    state="$(unit_property "$unit" ActiveState)"
+    case "$state" in
+    active)
+      kill "$pid" 2>/dev/null || true
+      trap - INT TERM
+      success "Tunnel is up"
+      return 0
+      ;;
+    activating | deactivating) ;;
+    *)
+      kill "$pid" 2>/dev/null || true
+      trap - INT TERM
+      # Let journald write the last lines of the invocation
+      sleep 0.5
+      printf 'VPN failed to start (%s): %s\n' "$state" "$(failure_message "$unit" "$invocation")" >&2
+      printf 'Log: fortivpn log %s\n' "$(profile_of "$unit")" >&2
+      return 1
+      ;;
+    esac
+  done
+}
+
+cmd_up() {
+  local profile="${1:-}" unit other state old invocation
+  local -a others=()
+
+  [[ -n "$profile" ]] || profile="$(choose_profile)"
+  require_profile "$profile"
+  unit="$(unit_of "$profile")"
+
+  # Only one tunnel at a time: every profile creates ppp0
+  while IFS= read -r other; do
+    [[ "$other" == "$unit" ]] || others+=("$other")
+  done < <(instances_in active activating)
+  if ((${#others[@]} > 0)); then
+    info "Stopping $(for other in "${others[@]}"; do profile_of "$other"; done | paste -sd ' ')"
+    "${SYSTEMCTL[@]}" stop "${others[@]}" || error "Could not stop ${others[*]}"
+  fi
+
+  state="$(unit_property "$unit" ActiveState)"
+  case "$state" in
+  active)
+    success "Tunnel is up"
+    return 0
+    ;;
+  activating)
+    info "Already connecting to $profile"
+    follow_invocation "$unit" "$(unit_property "$unit" InvocationID)"
+    return
+    ;;
+  failed)
+    # Best effort: also clears the start rate limit
+    "${SYSTEMCTL[@]}" reset-failed "$unit" 2>/dev/null || true
+    ;;
+  esac
+
+  old="$(unit_property "$unit" InvocationID)"
+  info "Connecting to $profile"
+  "${SYSTEMCTL[@]}" start --no-block "$unit" || error "Could not start $unit"
+
+  invocation="$(wait_for_new_invocation "$unit" "$old")" ||
+    error "$unit did not start (state: $(unit_property "$unit" ActiveState))"
+  follow_invocation "$unit" "$invocation"
+}
+
+cmd_down() {
+  local unit
+  local -a units failed
+
+  mapfile -t units < <(instances_in active activating)
+  mapfile -t failed < <(instances_in failed)
+
+  if ((${#units[@]} == 0)); then
+    if ((${#failed[@]} > 0)); then
+      "${SYSTEMCTL[@]}" reset-failed "${failed[@]}" 2>/dev/null || true
+    fi
+    info "VPN is not running"
+    return 0
+  fi
+
+  "${SYSTEMCTL[@]}" stop "${units[@]}" || error "Could not stop ${units[*]}"
+  # A tunnel stopped on purpose is not a failure to report
+  "${SYSTEMCTL[@]}" reset-failed "${units[@]}" "${failed[@]}" 2>/dev/null || true
+  for unit in "${units[@]}"; do
+    success "Disconnected $(profile_of "$unit")"
+  done
+}
+
+cmd_status() {
+  local current unit="" state="down" profile="" url="" message="" invocation
+
+  current="$(current_instance)"
+  if [[ -n "$current" ]]; then
+    read -r unit state <<<"$current"
+    profile="$(profile_of "$unit")"
+    invocation="$(unit_property "$unit" InvocationID)"
+    case "$state" in
+    activating)
+      state="connecting"
+      url="$(invocation_journal "$invocation" | saml_url_in)"
+      ;;
+    active) state="up" ;;
+    failed) message="$(failure_message "$unit" "$invocation")" ;;
+    esac
+  fi
+
+  if [[ "${1:-}" == "--json" ]]; then
+    jq -nc --arg profile "$profile" --arg state "$state" --arg url "$url" --arg message "$message" '
+      def nullable: if . == "" then null else . end;
+      {profile: ($profile | nullable), state: $state, url: ($url | nullable), message: ($message | nullable)}'
+    return 0
+  fi
+
+  case "$state" in
+  down) info "VPN is down" ;;
+  up) success "VPN is up: $profile" ;;
+  connecting)
+    info "VPN is connecting: $profile"
+    [[ -z "$url" ]] || printf 'SAML login: %s\n' "$url"
+    ;;
+  failed)
+    styled 196 "VPN failed: $profile"
+    printf '%s\n' "$message"
+    ;;
+  esac
+}
+
+cmd_log() {
+  local profile="${1:-}" unit current
+
+  if [[ -n "$profile" ]]; then
+    require_profile "$profile"
+    unit="$(unit_of "$profile")"
+  else
+    current="$(current_instance)"
+    unit="${current%% *}"
+    if [[ -z "$unit" ]]; then
+      # The most recent instance of this boot, also when systemd has already unloaded it
+      unit="$(journalctl -b -q --no-pager -u 'openfortivpn@*' -n 1 -o json 2>/dev/null |
+        jq -r '._SYSTEMD_UNIT // .UNIT // empty' 2>/dev/null || true)"
+    fi
+    [[ -n "$unit" ]] || error "No openfortivpn instance ran in this boot"
+  fi
+
+  if [[ -t 1 ]]; then
+    journalctl -u "$unit" -b -e
+  else
+    journalctl -u "$unit" -b --no-pager
+  fi
+}
+
+usage() {
+  cat <<EOF
+Usage: $(basename "$0") <command> [args]
+
+Corporate VPN with SAML login, one openfortivpn@<profile>.service at a time.
+Profiles are $PROFILE_DIR/<profile>.conf.
+
+Commands:
+  profiles [--json]   List profiles
+  up [profile]        Connect; stops any other tunnel first. Without a profile:
+                      the only one, or a choice on a terminal
+  down                Disconnect
+  status [--json]     Show the state: down, connecting, up or failed
+  log [profile]       Show the journal of the profile, or of the current or last tunnel
+  -h, --help          Show this help
+
+Over SSH the SAML URL is printed and copied to the local clipboard (OSC 52);
+forward port $SAML_PORT: ssh -L $SAML_PORT:127.0.0.1:$SAML_PORT <this host>
+EOF
+}
+
+# ────────────────────────────────────────────────────────────────────────────────
+#  CLI
+# ────────────────────────────────────────────────────────────────────────────────
+
+command="${1:-}"
+(($# == 0)) || shift
+
+case "$command" in
+profiles) cmd_profiles "$@" ;;
+up) cmd_up "$@" ;;
+down) cmd_down ;;
+status) cmd_status "$@" ;;
+log) cmd_log "$@" ;;
+-h | --help | help) usage ;;
+"")
+  usage >&2
+  exit 1
+  ;;
+*)
+  printf 'Unknown command: %s\n\n' "$command" >&2
+  usage >&2
+  exit 1
+  ;;
+esac
