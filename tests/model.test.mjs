@@ -28,7 +28,7 @@ function track(...lines) {
 
 test("parseStatus accepts the CLI contract", () => {
   const r = Model.parseStatus(status({ profile: "work", state: "up", url: null, message: null }))
-  assert.deepEqual(r, { ok: true, state: "up", profile: "work", url: "", message: "" })
+  assert.deepEqual(r, { ok: true, state: "up", profile: "work", url: "", message: "", ip: "", since: 0 })
   const down = Model.parseStatus(status({ profile: null, state: "down", url: null, message: null }))
   assert.equal(down.ok, true)
   assert.equal(down.profile, "")
@@ -256,4 +256,38 @@ test("CLI path is absolute from HOME and the log command is quoted", () => {
   assert.deepEqual(Model.logArgv("/home/sf/.local/bin/fortivpn"), ["omarchy-launch-floating-terminal-with-presentation", "'/home/sf/.local/bin/fortivpn' log"])
   assert.deepEqual(Model.logArgv("/home/o'brien/.local/bin/fortivpn")[1], "'/home/o'\\''brien/.local/bin/fortivpn' log")
   assert.deepEqual(Model.logArgv(""), [])
+})
+
+test("tunnel address and start time: only for an up tunnel, and only when well-formed", () => {
+  const up = Model.parseStatus(status({ profile: "work", state: "up", ip: "10.0.0.42", since: 1795678373 }))
+  assert.equal(up.ip, "10.0.0.42")
+  assert.equal(up.since, 1795678373)
+  const connecting = Model.parseStatus(status({ profile: "work", state: "connecting", ip: "10.0.0.42", since: 1795678373 }))
+  assert.equal(connecting.ip, "")
+  assert.equal(connecting.since, 0)
+  for (const ip of ["256.1.1.1", "10.0.0", "10.0.0.42 ", "::1", MARKUP, 42, null]) assert.equal(Model.validIpv4(ip), "", String(ip))
+  for (const since of ["1795678373", -1, 0, 1e12, NaN, Infinity, null]) assert.equal(Model.validSince(since), 0, String(since))
+})
+
+test("uptime and the header detail line", () => {
+  assert.equal(Model.formatUptime(0), "0:00")
+  assert.equal(Model.formatUptime(59), "0:59")
+  assert.equal(Model.formatUptime(61), "1:01")
+  assert.equal(Model.formatUptime(3723), "1:02:03")
+  assert.equal(Model.formatUptime(36000), "10:00:00")
+  assert.equal(Model.formatUptime(-5), "")
+  assert.equal(Model.tunnelDetail("10.0.0.42", 1000, 4723), "10.0.0.42 · 1:02:03")
+  assert.equal(Model.tunnelDetail("", 1000, 1060), "1:00")
+  assert.equal(Model.tunnelDetail("10.0.0.42", 0, 1060), "10.0.0.42")
+  // A clock behind the start time shows no uptime rather than a negative one.
+  assert.equal(Model.tunnelDetail("10.0.0.42", 2000, 1000), "10.0.0.42")
+  assert.equal(Model.tunnelDetail(MARKUP, 0, 0), "")
+})
+
+test("the connected notification can be switched off; failures and drops cannot", () => {
+  assert.equal(Model.wantsNotice({ kind: "connected", profile: "work" }, false), false)
+  assert.equal(Model.wantsNotice({ kind: "connected", profile: "work" }, true), true)
+  assert.equal(Model.wantsNotice({ kind: "failed", profile: "work", message: "x" }, false), true)
+  assert.equal(Model.wantsNotice({ kind: "disconnected", profile: "work" }, false), true)
+  assert.equal(Model.wantsNotice(null, true), false)
 })

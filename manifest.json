@@ -21,7 +21,8 @@
     "allowMultiple": false,
     "defaultSection": "right",
     "defaults": {
-      "refreshIntervalSec": 15
+      "refreshIntervalSec": 15,
+      "notifyOnConnect": true
     },
     "schema": [
       {
@@ -32,6 +33,12 @@
         "max": 3600,
         "step": 5,
         "defaultValue": 15
+      },
+      {
+        "key": "notifyOnConnect",
+        "type": "boolean",
+        "label": "Notify when the tunnel comes up",
+        "defaultValue": true
       }
     ]
   }

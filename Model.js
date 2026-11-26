@@ -12,6 +12,7 @@ var MAX_PROFILE = 64
 var MAX_PROFILES = 100
 var MAX_MESSAGE = 300
 var MAX_URL = 2048
+var MAX_SINCE = 1e11
 var FAST_POLL_MS = 3000
 
 function translator(tr) {
@@ -92,13 +93,62 @@ function parseStatus(raw) {
   if (!data || typeof data !== "object" || Array.isArray(data)) return { ok: false, error: "status is not an object" }
   var state = typeof data.state === "string" ? data.state : ""
   if (STATES.indexOf(state) === -1) return { ok: false, error: "unknown state" }
+  var up = state === "up"
   return {
     ok: true,
     state: state,
     profile: validProfile(data.profile),
     url: safeLoginUrl(data.url),
-    message: cleanText(data.message, MAX_MESSAGE)
+    message: cleanText(data.message, MAX_MESSAGE),
+    ip: up ? validIpv4(data.ip) : "",
+    since: up ? validSince(data.since) : 0
   }
+}
+
+// A dotted IPv4 address, or "" for anything else.
+function validIpv4(value) {
+  if (typeof value !== "string" || !/^\d{1,3}(\.\d{1,3}){3}$/.test(value)) return ""
+  var parts = value.split(".")
+  for (var i = 0; i < parts.length; i++)
+    if (parseInt(parts[i], 10) > 255) return ""
+  return value
+}
+
+// Unix seconds the tunnel came up, or 0 for anything that is not one.
+function validSince(value) {
+  if (typeof value !== "number" || !isFinite(value) || value <= 0 || value >= MAX_SINCE) return 0
+  return Math.floor(value)
+}
+
+// Elapsed time as h:mm:ss, or m:ss under an hour; "" when unknown.
+function formatUptime(seconds) {
+  if (typeof seconds !== "number" || !isFinite(seconds) || seconds < 0) return ""
+  var s = Math.floor(seconds)
+  var h = Math.floor(s / 3600)
+  var m = Math.floor((s % 3600) / 60)
+  var sec = s % 60
+  var mm = h > 0 && m < 10 ? "0" + m : String(m)
+  var ss = sec < 10 ? "0" + sec : String(sec)
+  return h > 0 ? h + ":" + mm + ":" + ss : mm + ":" + ss
+}
+
+// The panel's detail line for an up tunnel: "10.0.0.42 · 1:02:03". A clock
+// behind `since` shows no uptime rather than a negative one.
+function tunnelDetail(ip, since, nowSec) {
+  var parts = []
+  var address = validIpv4(ip)
+  if (address !== "") parts.push(address)
+  var start = validSince(since)
+  if (start > 0 && typeof nowSec === "number" && nowSec >= start) parts.push(formatUptime(nowSec - start))
+  return parts.join(" · ")
+}
+
+// Whether a notice is sent: "connected" can be switched off in the widget's
+// settings; failures and unexpected drops always notify.
+function wantsNotice(notice, notifyOnConnect) {
+  if (!notice) return false
+  if (notice.kind === "connected" && notifyOnConnect === false) return false
+  return true
 }
 
 // `fortivpn profiles --json`: an array of names. Invalid names are dropped,
@@ -324,6 +374,11 @@ if (typeof module !== "undefined") {
     safeLoginUrl: safeLoginUrl,
     neutralizeMarkup: neutralizeMarkup,
     parseStatus: parseStatus,
+    validIpv4: validIpv4,
+    validSince: validSince,
+    formatUptime: formatUptime,
+    tunnelDetail: tunnelDetail,
+    wantsNotice: wantsNotice,
     parseProfiles: parseProfiles,
     displayProfiles: displayProfiles,
     initialTracker: initialTracker,

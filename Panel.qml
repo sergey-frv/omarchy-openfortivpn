@@ -149,12 +149,24 @@ Panel {
     readonly property string lastError: ""
     readonly property string message: ""
     readonly property string statusText: "down"
+    readonly property string tunnelIp: ""
+    readonly property int tunnelSince: 0
     function refresh() {}
     function refreshProfiles() {}
     function up(name) {}
     function down() {}
     function openLoginUrl() {}
     function openLog() {}
+  }
+
+  // Wall clock for the uptime in the header, ticking only while it is on screen.
+  property real nowSec: Date.now() / 1000
+  Timer {
+    interval: 1000
+    repeat: true
+    triggeredOnStart: true
+    running: root.opened && root.viewState === "up"
+    onTriggered: root.nowSec = Date.now() / 1000
   }
 
   Binding {
@@ -256,6 +268,7 @@ Panel {
             width: parent.width
             title: vpn.profile !== "" ? vpn.profile : "OpenFortiVPN"
             meta: root.stateText
+            detail: root.viewState === "up" ? Model.tunnelDetail(vpn.tunnelIp, vpn.tunnelSince, root.nowSec) : ""
             foreground: root.foreground
             fontFamily: root.fontFamily
             iconOpacity: root.viewState === "down" || root.viewState === "missing" ? 0.5 : 1.0

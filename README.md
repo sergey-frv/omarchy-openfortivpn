@@ -48,18 +48,25 @@ work-old | vpn-old.example.com:10443/staff |
 ## Use
 
 - **Bar widget**: a click opens the panel. The panel shows the tunnel state, lists the profiles, and connects or
-  disconnects them. While the SAML login is in progress, it offers the login link. After a failure, it offers the
-  log. The shield icon is dimmed while the tunnel is down, pulses while it connects, and turns red when the
-  connection fails.
+  disconnects them. While the tunnel is up, the header shows its address and how long it has been up. While the
+  SAML login is in progress, the panel offers the login link. After a failure, it offers the log. The shield icon
+  is dimmed while the tunnel is down, pulses while it connects, and turns red when the connection fails.
+- **Notifications**: the widget notifies when the tunnel comes up, when a connection fails, and when the tunnel
+  drops without a disconnect from you. The notification about the tunnel coming up can be switched off in the
+  widget's settings (`notifyOnConnect`).
 - **CLI**:
 
   ```bash
   fortivpn up [profile]      # connect; asks for the profile when there are several
   fortivpn down              # disconnect
-  fortivpn status [--json]   # down | connecting | up | failed
+  fortivpn status [--json]   # down | connecting | up | failed; the address and start time when up
   fortivpn profiles [--json]
   fortivpn log [profile]     # journal of the last connection attempt
   ```
+
+  `fortivpn status --json` prints
+  `{"profile", "state", "url", "message", "ip", "since"}`: `url` is the SAML login link while connecting,
+  `message` the reason of a failure, `ip` the tunnel's IPv4 address and `since` the Unix time it came up.
 
 ### Login over SSH
 

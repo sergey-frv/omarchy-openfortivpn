@@ -43,6 +43,10 @@ Item {
   readonly property string profile: Model.displayProfile(tracker)
   readonly property string loginUrl: tracker.last && tracker.last.state === "connecting" ? tracker.last.url : ""
   readonly property string message: Model.displayMessage(tracker)
+  // Address and start time of an up tunnel; "" and 0 in every other state.
+  readonly property string tunnelIp: tracker.last && tracker.last.state === "up" ? (tracker.last.ip || "") : ""
+  readonly property int tunnelSince: tracker.last && tracker.last.state === "up" ? (tracker.last.since || 0) : 0
+  readonly property bool notifyOnConnect: setting("notifyOnConnect", true) !== false
   readonly property bool busy: checkProcess.running || statusProcess.running || profilesProcess.running
 
   // Polls left at the fast rate after an action, so the state change that
@@ -126,6 +130,7 @@ Item {
   }
 
   function notify(notice) {
+    if (!Model.wantsNotice(notice, root.notifyOnConnect)) return
     var argv = Model.noticeArgv(notice, root.tr)
     if (argv.length > 0) Quickshell.execDetached(argv)
   }

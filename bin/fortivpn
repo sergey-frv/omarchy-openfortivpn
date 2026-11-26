@@ -353,8 +353,21 @@ cmd_down() {
   done
 }
 
+# IPv4 address of the tunnel interface; every profile creates ppp0
+tunnel_ip() {
+  ip -j -4 addr show dev ppp0 2>/dev/null | jq -r '.[0].addr_info[0].local // empty' 2>/dev/null || true
+}
+
+# Unix time the unit became active, which is when openfortivpn reported the tunnel up (Type=notify)
+active_since() {
+  local value
+  value="$(systemctl show -p ActiveEnterTimestamp --value --timestamp=unix "$1" 2>/dev/null || true)"
+  value="${value#@}"
+  [[ "$value" =~ ^[0-9]+$ ]] && printf '%s\n' "$value"
+}
+
 cmd_status() {
-  local current unit="" state="down" profile="" url="" message="" invocation
+  local current unit="" state="down" profile="" url="" message="" invocation ip="" since=""
 
   current="$(current_instance)"
   if [[ -n "$current" ]]; then
@@ -366,21 +379,31 @@ cmd_status() {
       state="connecting"
       url="$(invocation_journal "$invocation" | saml_url_in)"
       ;;
-    active) state="up" ;;
+    active)
+      state="up"
+      ip="$(tunnel_ip)"
+      since="$(active_since "$unit")"
+      ;;
     failed) message="$(failure_message "$unit" "$invocation")" ;;
     esac
   fi
 
   if [[ "${1:-}" == "--json" ]]; then
-    jq -nc --arg profile "$profile" --arg state "$state" --arg url "$url" --arg message "$message" '
+    jq -nc --arg profile "$profile" --arg state "$state" --arg url "$url" --arg message "$message" \
+      --arg ip "$ip" --arg since "$since" '
       def nullable: if . == "" then null else . end;
-      {profile: ($profile | nullable), state: $state, url: ($url | nullable), message: ($message | nullable)}'
+      {profile: ($profile | nullable), state: $state, url: ($url | nullable), message: ($message | nullable),
+       ip: ($ip | nullable), since: (if $since == "" then null else ($since | tonumber) end)}'
     return 0
   fi
 
   case "$state" in
   down) info "VPN is down" ;;
-  up) success "VPN is up: $profile" ;;
+  up)
+    success "VPN is up: $profile"
+    [[ -z "$ip" ]] || printf 'Address: %s\n' "$ip"
+    [[ -z "$since" ]] || printf 'Since: %s\n' "$(date -d "@$since" '+%F %T')"
+    ;;
   connecting)
     info "VPN is connecting: $profile"
     [[ -z "$url" ]] || printf 'SAML login: %s\n' "$url"
